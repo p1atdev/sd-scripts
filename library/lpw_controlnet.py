@@ -93,6 +93,7 @@ class StableDiffusionControlNetPipeline(StableDiffusionLongPromptWeightingPipeli
             tokenizer=tokenizer,
             unet=unet,
             scheduler=scheduler,
+            clip_skip=clip_skip,
             safety_checker=safety_checker,
             feature_extractor=feature_extractor,
             requires_safety_checker=requires_safety_checker,
