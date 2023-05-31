@@ -87,7 +87,17 @@ class StableDiffusionControlNetPipeline(StableDiffusionLongPromptWeightingPipeli
         feature_extractor: CLIPImageProcessor,
         requires_safety_checker: bool = True,
     ):
-        super().__init__()
+        super().__init__(
+            vae=vae,
+            text_encoder=text_encoder,
+            tokenizer=tokenizer,
+            unet=unet,
+            scheduler=scheduler,
+            clip_skip=clip_skip,
+            safety_checker=safety_checker,
+            feature_extractor=feature_extractor,
+            requires_safety_checker=requires_safety_checker,
+        )
 
         if safety_checker is None and requires_safety_checker:
             logger.warning(
