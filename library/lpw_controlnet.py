@@ -124,6 +124,7 @@ class StableDiffusionControlNetPipeline(StableDiffusionLongPromptWeightingPipeli
             tokenizer=tokenizer,
             unet=unet,
             controlnet=controlnet,
+            clip_skip=clip_skip,
             scheduler=scheduler,
             safety_checker=safety_checker,
             feature_extractor=feature_extractor,
