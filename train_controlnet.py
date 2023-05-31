@@ -350,7 +350,7 @@ def train(args):
                 b_size = latents.shape[0]
 
                 input_ids = batch["input_ids"].to(accelerator.device)
-                encoder_hidden_states = train_util.gethidden_states(
+                encoder_hidden_states = train_util.get_hidden_states(
                     args, input_ids, tokenizer, text_encoder, weight_dtype
                 )
 
