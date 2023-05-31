@@ -87,17 +87,7 @@ class StableDiffusionControlNetPipeline(StableDiffusionLongPromptWeightingPipeli
         feature_extractor: CLIPImageProcessor,
         requires_safety_checker: bool = True,
     ):
-        super().__init__(
-            vae=vae,
-            text_encoder=text_encoder,
-            tokenizer=tokenizer,
-            unet=unet,
-            scheduler=scheduler,
-            clip_skip=clip_skip,
-            safety_checker=safety_checker,
-            feature_extractor=feature_extractor,
-            requires_safety_checker=requires_safety_checker,
-        )
+        super().__init__()
 
         if safety_checker is None and requires_safety_checker:
             logger.warning(
@@ -128,10 +118,10 @@ class StableDiffusionControlNetPipeline(StableDiffusionLongPromptWeightingPipeli
             safety_checker=safety_checker,
             feature_extractor=feature_extractor,
         )
+        self.clip_skip = clip_skip
         self.vae_scale_factor = 2 ** (len(self.vae.config.block_out_channels) - 1)
         self.image_processor = VaeImageProcessor(vae_scale_factor=self.vae_scale_factor)
         self.register_to_config(requires_safety_checker=requires_safety_checker)
-        self.__init__additional__()
 
     def check_inputs(
         self,
