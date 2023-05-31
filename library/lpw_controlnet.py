@@ -31,7 +31,7 @@ from diffusers.pipelines.stable_diffusion.safety_checker import (
 )
 from diffusers.pipelines.controlnet.multicontrolnet import MultiControlNetModel
 
-from lpw_stable_diffusion import StableDiffusionLongPromptWeightingPipeline
+from library.lpw_stable_diffusion import StableDiffusionLongPromptWeightingPipeline
 
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
 
