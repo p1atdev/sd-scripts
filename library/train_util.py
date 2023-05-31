@@ -1501,10 +1501,10 @@ class ControlNetDataset(BaseDataset):
         def load_controlnet_dir(subset: ControlNetSubset):
             if not os.path.isdir(subset.image_dir):
                 print(f"not directory: {subset.image_dir}")
-                return [], []
+                return [], [], []
             if not os.path.isdir(subset.conditioning_data_dir):
                 print(f"not directory: {subset.conditioning_data_dir}")
-                return [], []
+                return [], [], []
 
             img_paths = glob_images(subset.image_dir, "*")
             conditioning_img_paths = glob_images(subset.conditioning_data_dir, "*")
