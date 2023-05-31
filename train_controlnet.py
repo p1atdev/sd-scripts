@@ -440,7 +440,7 @@ def train(args):
                 progress_bar.update(1)
                 global_step += 1
 
-                train_util.sample_images(
+                train_util.sample_images_with_control(
                     accelerator,
                     args,
                     None,
@@ -450,6 +450,7 @@ def train(args):
                     tokenizer,
                     text_encoder,
                     unet,
+                    controlnet,
                 )
 
                 # 指定ステップごとにモデルを保存
@@ -527,7 +528,7 @@ def train(args):
                         args, accelerator, epoch + 1
                     )
 
-        train_util.sample_images(
+        train_util.sample_images_with_control(
             accelerator,
             args,
             epoch + 1,
@@ -537,6 +538,7 @@ def train(args):
             tokenizer,
             text_encoder,
             unet,
+            controlnet
         )
 
         # end of epoch
