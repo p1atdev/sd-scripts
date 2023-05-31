@@ -584,6 +584,14 @@ def setup_parser() -> argparse.ArgumentParser:
         help="conditioning data directory / 条件付けデータのディレクトリ",
     )
 
+    parser.add_argument(
+        "--save_model_as",
+        type=str,
+        default="safetensors",
+        choices=[None, "ckpt", "safetensors"],
+        help="format to save the model (default is .safetensors) / モデル保存時の形式（デフォルトはsafetensors）",
+    )
+
     return parser
 
 
