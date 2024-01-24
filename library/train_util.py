@@ -664,31 +664,6 @@ class BaseDataset(torch.utils.data.Dataset):
             if subset.shuffle_caption or subset.token_warmup_step > 0 or subset.caption_tag_dropout_rate > 0:
                 fixed_tokens = []
                 flex_tokens = []
-                if (
-                    hasattr(subset, "keep_tokens_separator")
-                    and subset.keep_tokens_separator
-                    and subset.keep_tokens_separator in caption
-                ):
-                    fixed_part, flex_part = caption.split(subset.keep_tokens_separator, 1)
-                    fixed_tokens = [t.strip() for t in fixed_part.split(subset.caption_separator) if t.strip()]
-                    flex_tokens = [t.strip() for t in flex_part.split(subset.caption_separator) if t.strip()]
-                else:
-                    tokens = [t.strip() for t in caption.strip().split(subset.caption_separator)]
-                    flex_tokens = tokens[:]
-                    if subset.keep_tokens > 0:
-                        fixed_tokens = flex_tokens[: subset.keep_tokens]
-                        flex_tokens = tokens[subset.keep_tokens :]
-
-                if subset.token_warmup_step < 1:  # 初回に上書きする
-                    subset.token_warmup_step = math.floor(subset.token_warmup_step * self.max_train_steps)
-                if subset.token_warmup_step and self.current_step < subset.token_warmup_step:
-                    tokens_len = (
-                        math.floor(
-                            (self.current_step) * ((len(flex_tokens) - subset.token_warmup_min) / (subset.token_warmup_step))
-                        )
-                        + subset.token_warmup_min
-                    )
-                    flex_tokens = flex_tokens[:tokens_len]
 
                 def dropout_tags(tokens):
                     if subset.caption_tag_dropout_rate <= 0:
@@ -699,12 +674,46 @@ class BaseDataset(torch.utils.data.Dataset):
                             l.append(token)
                     return l
 
-                if subset.shuffle_caption:
-                    random.shuffle(flex_tokens)
+                use_keep_tokens_separator = (
+                    hasattr(subset, "keep_tokens_separator")
+                    and subset.keep_tokens_separator
+                    and subset.keep_tokens_separator in caption
+                )
+                if not use_keep_tokens_separator:
+                    tokens = [t.strip() for t in caption.strip().split(subset.caption_separator)]
+                    flex_tokens = tokens[:]
+                    if subset.keep_tokens > 0:
+                        fixed_tokens = flex_tokens[: subset.keep_tokens]
+                        flex_tokens = tokens[subset.keep_tokens :]
 
-                flex_tokens = dropout_tags(flex_tokens)
+                    if subset.token_warmup_step < 1:  # 初回に上書きする
+                        subset.token_warmup_step = math.floor(subset.token_warmup_step * self.max_train_steps)
+                    if subset.token_warmup_step and self.current_step < subset.token_warmup_step:
+                        tokens_len = (
+                            math.floor(
+                                (self.current_step) * ((len(flex_tokens) - subset.token_warmup_min) / (subset.token_warmup_step))
+                            )
+                            + subset.token_warmup_min
+                        )
+                        flex_tokens = flex_tokens[:tokens_len]
 
-                caption = ", ".join(fixed_tokens + flex_tokens)
+                    if subset.shuffle_caption:
+                        random.shuffle(flex_tokens)
+                    
+                    flex_tokens = dropout_tags(flex_tokens)
+
+                    caption = ", ".join(fixed_tokens + flex_tokens)
+                
+                else:
+                    # 分割された領域それぞれの中でのみシャッフルする
+                    parts = [part.strip() for part in caption.split(subset.keep_tokens_separator) if part.strip()]
+                    tokens = []
+                    for part in parts:
+                        part_tokens = [t.strip() for t in part.split(subset.caption_separator) if t.strip()]
+                        random.shuffle(part_tokens)
+                        tokens.extend(part_tokens)
+                    
+                    caption = ", ".join(tokens)
 
             # textual inversion対応
             for str_from, str_to in self.replacements.items():
