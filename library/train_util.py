@@ -710,9 +710,11 @@ class BaseDataset(torch.utils.data.Dataset):
                     # 分割された領域それぞれの中でのみシャッフルする
                     parts = [part.strip() for part in caption.split(subset.keep_tokens_separator) if part.strip()]
                     tokens = []
-                    for part in parts:
+                    for i, part in enumerate(parts):
                         part_tokens = [t.strip() for t in part.split(subset.caption_separator) if t.strip()]
                         random.shuffle(part_tokens)
+                        if i != 0:
+                            part_tokens = dropout_tags(part_tokens)
                         tokens.extend(part_tokens)
                     
                     caption = ", ".join(tokens)
