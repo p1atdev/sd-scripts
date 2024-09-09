@@ -17,7 +17,8 @@ import numpy as np
 import torch
 import re
 from library.utils import setup_logging
-
+from networks.convert_flux_lora import convert_ai_toolkit_to_sd_scripts
+from safetensors.torch import load_file
 
 setup_logging()
 import logging
@@ -368,12 +369,10 @@ def create_network(
 
 
 # Create network from weights for inference, weights are not loaded here (because can be merged)
-def create_network_from_weights(multiplier, file, ae, text_encoders, flux, weights_sd=None, for_inference=False, **kwargs):
+def create_network_from_weights(multiplier, file, ae, text_encoders, flux, weights_sd=None, for_inference=False, split_qkv=False, **kwargs):
     # if unet is an instance of SdxlUNet2DConditionModel or subclass, set is_sdxl to True
     if weights_sd is None:
         if os.path.splitext(file)[1] == ".safetensors":
-            from safetensors.torch import load_file, safe_open
-
             weights_sd = load_file(file)
         else:
             weights_sd = torch.load(file, map_location="cpu")
@@ -400,7 +399,7 @@ def create_network_from_weights(multiplier, file, ae, text_encoders, flux, weigh
     if train_t5xxl is None:
         train_t5xxl = False
 
-    # # split qkv
+    # split qkv
     # double_qkv_rank = None
     # single_qkv_rank = None
     # rank = None
@@ -416,7 +415,7 @@ def create_network_from_weights(multiplier, file, ae, text_encoders, flux, weigh
     # split_qkv = (double_qkv_rank is not None and double_qkv_rank != rank) or (
     #     single_qkv_rank is not None and single_qkv_rank != rank
     # )
-    split_qkv = False  # split_qkv is not needed to care, because state_dict is qkv combined
+    # split_qkv = False  # split_qkv is not needed to care, because state_dict is qkv combined
 
     module_class = LoRAInfModule if for_inference else LoRAModule
 
@@ -429,6 +428,7 @@ def create_network_from_weights(multiplier, file, ae, text_encoders, flux, weigh
         module_class=module_class,
         split_qkv=split_qkv,
         train_t5xxl=train_t5xxl,
+        **kwargs,
     )
     return network, weights_sd
 
@@ -592,9 +592,8 @@ class LoRANetwork(torch.nn.Module):
 
         self.unet_loras: List[Union[LoRAModule, LoRAInfModule]]
         self.unet_loras, skipped_un = create_modules(True, None, unet, target_replace_modules)
-        logger.info(f"create LoRA for FLUX {self.train_blocks} blocks: {len(self.unet_loras)} modules.")
-
         skipped = skipped_te + skipped_un
+        logger.info(f"create LoRA for FLUX {self.train_blocks} blocks: {len(self.unet_loras)} modules. skipped {len(skipped)} modules.")
         if varbose and len(skipped) > 0:
             logger.warning(
                 f"because dim (rank) is 0, {len(skipped)} LoRA modules are skipped / dim (rank)が0の為、次の{len(skipped)}個のLoRAモジュールはスキップされます:"
@@ -619,8 +618,6 @@ class LoRANetwork(torch.nn.Module):
 
     def load_weights(self, file):
         if os.path.splitext(file)[1] == ".safetensors":
-            from safetensors.torch import load_file
-
             weights_sd = load_file(file)
         else:
             weights_sd = torch.load(file, map_location="cpu")
@@ -1009,7 +1006,7 @@ class LoRANetwork(torch.nn.Module):
 def download_assistant_lora(lora_path_or_repo_id: str):
     # handle downloading from the hub if needed
     if not os.path.exists(lora_path_or_repo_id):
-        print(f"Grabbing assistant lora from the hub: {lora_path_or_repo_id}")
+        logger.info(f"Grabbing assistant lora from the hub: {lora_path_or_repo_id}")
         new_lora_path = hf_hub_download(
             lora_path_or_repo_id,
             filename="pytorch_lora_weights.safetensors"
@@ -1022,16 +1019,27 @@ def download_assistant_lora(lora_path_or_repo_id: str):
     return local_path
 
 # ref: flux_minimal_inference.py
-def load_assistant_lora(model_local_path: str, transformer, text_encoders = [], autoencoder: None = None, inverted: bool = False) -> LoRAInfModule:
+def load_assistant_lora(model_local_path: str, transformer, text_encoders = [], autoencoder: None = None, inverted: bool = False) -> LoRANetwork:
     multiplier = 1.0 if not inverted else -1.0
 
-    lora_model, lora_state_dict = create_network_from_weights(
-        multiplier, model_local_path, autoencoder, text_encoders, transformer, None, for_inference=True
+    lora_state_dict = load_file(model_local_path)
+    lora_state_dict = convert_ai_toolkit_to_sd_scripts(lora_state_dict)
+    logger.info(f"Loading assistant LoRA.")
+    lora_model, _ = create_network_from_weights(
+        multiplier, 
+        model_local_path, 
+        ae=autoencoder, 
+        text_encoders=text_encoders, 
+        flux=transformer, 
+        weights_sd=lora_state_dict, 
+        for_inference=True, 
+        split_qkv=False,
+        varbose=False,
     )
-    assert isinstance(lora_model, LoRAInfModule), "Assistant LoRA must be an instance of LoRAInfModule"
-    lora_model.network.apply_to(text_encoders, transformer)
+    assert isinstance(lora_model, LoRANetwork), "Assistant LoRA must be an instance of LoRANetwork"
+    lora_model.apply_to(text_encoders, transformer)
     info = lora_model.load_state_dict(lora_state_dict, strict=True)
-    logger.info(f"Loaded LoRA weights from {lora_state_dict}: {info}")
+    logger.info(f"Loaded assistant LoRA!")
     lora_model.eval()
     lora_model.requires_grad_(False)
     lora_model.to(transformer.device)

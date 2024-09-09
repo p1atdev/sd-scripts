@@ -269,7 +269,7 @@ def train(args):
     if args.assistant_lora_path is not None:
         assistant_lora_path = lora_flux.download_assistant_lora(args.assistant_lora_path)
         assistant_lora = lora_flux.load_assistant_lora(
-            assistant_lora_path, flux, text_encoders=[], autoencoder=None, inverted=False,
+            assistant_lora_path, transformer=flux, text_encoders=[], autoencoder=None, inverted=False,
         )
         print(f"Assistant Lora loaded from: {assistant_lora_path}")
     else:
@@ -640,7 +640,7 @@ def train(args):
     # For --sample_at_first
     if assistant_lora is not None:
         print("Unloading assistant lora")
-        assistant_lora.enabled = False
+        assistant_lora.set_enabled(False)
 
     flux_train_utils.sample_images(accelerator, args, 0, global_step, flux, ae, [clip_l, t5xxl], sample_prompts_te_outputs)
     if len(accelerator.trackers) > 0:
@@ -649,7 +649,7 @@ def train(args):
     
     if assistant_lora is not None:
         print("Reloading assistant lora")
-        assistant_lora.enabled = True
+        assistant_lora.set_enabled(True)
 
     loss_recorder = train_util.LossRecorder()
     epoch = 0  # avoid error when max_train_steps is 0
