@@ -12,11 +12,12 @@ import os
 from typing import Dict, List, Optional, Tuple, Type, Union
 from diffusers import AutoencoderKL
 from transformers import CLIPTextModel
+from huggingface_hub import hf_hub_download
 import numpy as np
 import torch
 import re
 from library.utils import setup_logging
-from library.sdxl_original_unet import SdxlUNet2DConditionModel
+
 
 setup_logging()
 import logging
@@ -158,6 +159,7 @@ class LoRAModule(torch.nn.Module):
             lxs = [lora_up(lx) for lora_up, lx in zip(self.lora_up, lxs)]
 
             return org_forwarded + torch.cat(lxs, dim=-1) * self.multiplier * scale
+
 
 
 class LoRAInfModule(LoRAModule):
@@ -1000,3 +1002,38 @@ class LoRANetwork(torch.nn.Module):
             norms.append(scalednorm.item())
 
         return keys_scaled, sum(norms) / len(norms), max(norms)
+
+
+# ref: https://github.com/ostris/ai-toolkit/blob/279ee65177a1ff7110fc05d6c2b7e082787ea8bc/toolkit/stable_diffusion_model.py#L500-L523
+# returns the path to the downloaded file
+def download_assistant_lora(lora_path_or_repo_id: str):
+    # handle downloading from the hub if needed
+    if not os.path.exists(lora_path_or_repo_id):
+        print(f"Grabbing assistant lora from the hub: {lora_path_or_repo_id}")
+        new_lora_path = hf_hub_download(
+            lora_path_or_repo_id,
+            filename="pytorch_lora_weights.safetensors"
+        )
+        # replace the path
+        local_path = new_lora_path
+    else:
+        local_path = lora_path_or_repo_id
+    
+    return local_path
+
+# ref: flux_minimal_inference.py
+def load_assistant_lora(model_local_path: str, transformer, text_encoders = [], autoencoder: None = None, inverted: bool = False) -> LoRAInfModule:
+    multiplier = 1.0 if not inverted else -1.0
+
+    lora_model, lora_state_dict = create_network_from_weights(
+        multiplier, model_local_path, autoencoder, text_encoders, transformer, None, for_inference=True
+    )
+    assert isinstance(lora_model, LoRAInfModule), "Assistant LoRA must be an instance of LoRAInfModule"
+    lora_model.network.apply_to(text_encoders, transformer)
+    info = lora_model.load_state_dict(lora_state_dict, strict=True)
+    logger.info(f"Loaded LoRA weights from {lora_state_dict}: {info}")
+    lora_model.eval()
+    lora_model.requires_grad_(False)
+    lora_model.to(transformer.device)
+
+    return lora_model

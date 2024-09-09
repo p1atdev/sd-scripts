@@ -13,6 +13,8 @@ init_ipex()
 from library import flux_models, flux_train_utils, flux_utils, sd3_train_utils, strategy_base, strategy_flux, train_util
 import train_network
 from library.utils import setup_logging
+import networks.lora_flux as lora_flux
+
 
 setup_logging()
 import logging
@@ -101,6 +103,16 @@ class FluxNetworkTrainer(train_network.NetworkTrainer):
                 logger.info("Loaded fp8 T5XXL model")
 
         ae = flux_utils.load_ae(name, args.ae, weight_dtype, "cpu", disable_mmap=args.disable_mmap_load_safetensors)
+
+        # load assistant lora
+        if args.assistant_lora_path is not None:
+            assistant_lora_path = lora_flux.download_assistant_lora(args.assistant_lora_path)
+            self.assistant_lora = lora_flux.load_assistant_lora(
+                assistant_lora_path, model, text_encoders=[], autoencoder=None, inverted=False,
+            )
+            print(f"Assistant Lora loaded from: {assistant_lora_path}")
+        else:
+            self.assistant_lora = None
 
         return flux_utils.MODEL_VERSION_FLUX_V1, [clip_l, t5xxl], ae, model
 
@@ -284,6 +296,10 @@ class FluxNetworkTrainer(train_network.NetworkTrainer):
     #     return noise_pred
 
     def sample_images(self, accelerator, args, epoch, global_step, device, ae, tokenizer, text_encoder, flux):
+        if self.assistant_lora is not None:
+            print("Unloading assistant lora")
+            self.assistant_lora.enabled = False
+        
         text_encoders = text_encoder  # for compatibility
         text_encoders = self.get_models_for_text_encoding(args, accelerator, text_encoders)
 
@@ -316,6 +332,10 @@ class FluxNetworkTrainer(train_network.NetworkTrainer):
             accelerator, args, epoch, global_step, wrapper, ae, text_encoders, self.sample_prompts_te_outputs
         )
         clean_memory_on_device(accelerator.device)
+
+        if self.assistant_lora is not None:
+            print("Reloading assistant lora")
+            self.assistant_lora.enabled = True
 
     def get_noise_scheduler(self, args: argparse.Namespace, device: torch.device) -> Any:
         noise_scheduler = sd3_train_utils.FlowMatchEulerDiscreteScheduler(num_train_timesteps=1000, shift=args.discrete_flow_shift)
@@ -504,6 +524,12 @@ def setup_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="[EXPERIMENTAL] use split mode for Flux model, network arg `train_blocks=single` is required"
         + "/[実験的] Fluxモデルの分割モードを使用する。ネットワーク引数`train_blocks=single`が必要",
+    )
+    parser.add_argument(
+        "--assistant_lora_path",
+        type=str,
+        help="path to the assistant lora model for training schnell / schnell 学習用の assistant lora モデルへのパス",
+        default=None,
     )
     return parser
 

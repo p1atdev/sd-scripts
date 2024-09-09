@@ -28,10 +28,10 @@ init_ipex()
 from accelerate.utils import set_seed
 from library import deepspeed_utils, flux_train_utils, flux_utils, strategy_base, strategy_flux
 from library.sd3_train_utils import load_prompts, FlowMatchEulerDiscreteScheduler
-
 import library.train_util as train_util
-
 from library.utils import setup_logging, add_logging_arguments
+import networks.lora_flux as lora_flux
+
 
 setup_logging()
 import logging
@@ -264,6 +264,16 @@ def train(args):
         flux.enable_gradient_checkpointing(cpu_offload=args.cpu_offload_checkpointing)
 
     flux.requires_grad_(True)
+
+    # load assistant lora
+    if args.assistant_lora_path is not None:
+        assistant_lora_path = lora_flux.download_assistant_lora(args.assistant_lora_path)
+        assistant_lora = lora_flux.load_assistant_lora(
+            assistant_lora_path, flux, text_encoders=[], autoencoder=None, inverted=False,
+        )
+        print(f"Assistant Lora loaded from: {assistant_lora_path}")
+    else:
+        assistant_lora = None
 
     is_swapping_blocks = args.double_blocks_to_swap is not None or args.single_blocks_to_swap is not None
     if is_swapping_blocks:
@@ -628,10 +638,18 @@ def train(args):
         accelerator.unwrap_model(flux).prepare_block_swap_before_forward()
 
     # For --sample_at_first
+    if assistant_lora is not None:
+        print("Unloading assistant lora")
+        assistant_lora.enabled = False
+
     flux_train_utils.sample_images(accelerator, args, 0, global_step, flux, ae, [clip_l, t5xxl], sample_prompts_te_outputs)
     if len(accelerator.trackers) > 0:
         # log empty object to commit the sample images to wandb
         accelerator.log({}, step=0)
+    
+    if assistant_lora is not None:
+        print("Reloading assistant lora")
+        assistant_lora.enabled = True
 
     loss_recorder = train_util.LossRecorder()
     epoch = 0  # avoid error when max_train_steps is 0
@@ -894,6 +912,12 @@ def setup_parser() -> argparse.ArgumentParser:
         "--cpu_offload_checkpointing",
         action="store_true",
         help="[EXPERIMENTAL] enable offloading of tensors to CPU during checkpointing / チェックポイント時にテンソルをCPUにオフロードする",
+    )
+    parser.add_argument(
+        "--assistant_lora_path",
+        type=str,
+        help="path to the assistant lora model for training schnell / schnell 学習用の assistant lora モデルへのパス",
+        default=None,
     )
     return parser
 
