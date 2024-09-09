@@ -110,6 +110,7 @@ class FluxNetworkTrainer(train_network.NetworkTrainer):
             self.assistant_lora = lora_flux.load_assistant_lora(
                 assistant_lora_path, transformer=model, text_encoders=[], autoencoder=None, inverted=False,
             )
+            self.assistant_lora.set_enabled(True)
             print(f"Assistant Lora loaded from: {assistant_lora_path}")
         else:
             self.assistant_lora = None
@@ -297,7 +298,7 @@ class FluxNetworkTrainer(train_network.NetworkTrainer):
 
     def sample_images(self, accelerator, args, epoch, global_step, device, ae, tokenizer, text_encoder, flux):
         if self.assistant_lora is not None:
-            print("Unloading assistant lora")
+            logger.info("Unloading assistant lora")
             self.assistant_lora.set_enabled(False)
         
         text_encoders = text_encoder  # for compatibility
@@ -307,34 +308,33 @@ class FluxNetworkTrainer(train_network.NetworkTrainer):
             flux_train_utils.sample_images(
                 accelerator, args, epoch, global_step, flux, ae, text_encoders, self.sample_prompts_te_outputs
             )
-            return
+        else:
+            class FluxUpperLowerWrapper(torch.nn.Module):
+                def __init__(self, flux_upper: flux_models.FluxUpper, flux_lower: flux_models.FluxLower, device: torch.device):
+                    super().__init__()
+                    self.flux_upper = flux_upper
+                    self.flux_lower = flux_lower
+                    self.target_device = device
 
-        class FluxUpperLowerWrapper(torch.nn.Module):
-            def __init__(self, flux_upper: flux_models.FluxUpper, flux_lower: flux_models.FluxLower, device: torch.device):
-                super().__init__()
-                self.flux_upper = flux_upper
-                self.flux_lower = flux_lower
-                self.target_device = device
+                def forward(self, img, img_ids, txt, txt_ids, timesteps, y, guidance=None, txt_attention_mask=None):
+                    self.flux_lower.to("cpu")
+                    clean_memory_on_device(self.target_device)
+                    self.flux_upper.to(self.target_device)
+                    img, txt, vec, pe = self.flux_upper(img, img_ids, txt, txt_ids, timesteps, y, guidance, txt_attention_mask)
+                    self.flux_upper.to("cpu")
+                    clean_memory_on_device(self.target_device)
+                    self.flux_lower.to(self.target_device)
+                    return self.flux_lower(img, txt, vec, pe, txt_attention_mask)
 
-            def forward(self, img, img_ids, txt, txt_ids, timesteps, y, guidance=None, txt_attention_mask=None):
-                self.flux_lower.to("cpu")
-                clean_memory_on_device(self.target_device)
-                self.flux_upper.to(self.target_device)
-                img, txt, vec, pe = self.flux_upper(img, img_ids, txt, txt_ids, timesteps, y, guidance, txt_attention_mask)
-                self.flux_upper.to("cpu")
-                clean_memory_on_device(self.target_device)
-                self.flux_lower.to(self.target_device)
-                return self.flux_lower(img, txt, vec, pe, txt_attention_mask)
-
-        wrapper = FluxUpperLowerWrapper(self.flux_upper, flux, accelerator.device)
-        clean_memory_on_device(accelerator.device)
-        flux_train_utils.sample_images(
-            accelerator, args, epoch, global_step, wrapper, ae, text_encoders, self.sample_prompts_te_outputs
-        )
-        clean_memory_on_device(accelerator.device)
+            wrapper = FluxUpperLowerWrapper(self.flux_upper, flux, accelerator.device)
+            clean_memory_on_device(accelerator.device)
+            flux_train_utils.sample_images(
+                accelerator, args, epoch, global_step, wrapper, ae, text_encoders, self.sample_prompts_te_outputs
+            )
+            clean_memory_on_device(accelerator.device)
 
         if self.assistant_lora is not None:
-            print("Reloading assistant lora")
+            logger.info("Reloading assistant lora")
             self.assistant_lora.set_enabled(True)
 
     def get_noise_scheduler(self, args: argparse.Namespace, device: torch.device) -> Any:

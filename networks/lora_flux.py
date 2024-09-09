@@ -1042,6 +1042,6 @@ def load_assistant_lora(model_local_path: str, transformer, text_encoders = [], 
     logger.info(f"Loaded assistant LoRA!")
     lora_model.eval()
     lora_model.requires_grad_(False)
-    lora_model.to(transformer.device)
+    lora_model.to("cpu")
 
     return lora_model
