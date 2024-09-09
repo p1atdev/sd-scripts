@@ -607,6 +607,10 @@ class NetworkTrainer:
             network, optimizer, train_dataloader, lr_scheduler = accelerator.prepare(
                 network, optimizer, train_dataloader, lr_scheduler
             )
+            if hasattr(self, "assistant_lora"):
+                self.assistant_lora = accelerator.prepare(
+                    self.assistant_lora,
+                )
             training_model = network
 
         if args.gradient_checkpointing:
