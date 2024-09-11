@@ -439,6 +439,8 @@ def train(args):
             accelerator.unwrap_model(flux).move_to_device_except_swap_blocks(accelerator.device)  # reduce peak memory usage
         optimizer, train_dataloader, lr_scheduler = accelerator.prepare(optimizer, train_dataloader, lr_scheduler)
 
+    assistant_lora = accelerator.prepare(assistant_lora)
+
     # 実験的機能：勾配も含めたfp16学習を行う　PyTorchにパッチを当ててfp16でのgrad scaleを有効にする
     if args.full_fp16:
         # During deepseed training, accelerate not handles fp16/bf16|mixed precision directly via scaler. Let deepspeed engine do.
@@ -640,7 +642,7 @@ def train(args):
     # For --sample_at_first
     if assistant_lora is not None:
         print("Unloading assistant lora")
-        assistant_lora.set_enabled(False)
+        accelerator.unwrap_model(assistant_lora).set_enabled(False)
 
     flux_train_utils.sample_images(accelerator, args, 0, global_step, flux, ae, [clip_l, t5xxl], sample_prompts_te_outputs)
     if len(accelerator.trackers) > 0:
@@ -649,7 +651,7 @@ def train(args):
     
     if assistant_lora is not None:
         print("Reloading assistant lora")
-        assistant_lora.set_enabled(True)
+        accelerator.unwrap_model(assistant_lora).set_enabled(True)
 
     loss_recorder = train_util.LossRecorder()
     epoch = 0  # avoid error when max_train_steps is 0
@@ -778,9 +780,15 @@ def train(args):
                 progress_bar.update(1)
                 global_step += 1
 
+                if assistant_lora is not None:
+                    print("Unloading assistant lora")
+                    accelerator.unwrap_model(assistant_lora).set_enabled(False)
                 flux_train_utils.sample_images(
                     accelerator, args, None, global_step, flux, ae, [clip_l, t5xxl], sample_prompts_te_outputs
                 )
+                if assistant_lora is not None:
+                    print("Reloading assistant lora")
+                    accelerator.unwrap_model(assistant_lora).set_enabled(True)
 
                 # 指定ステップごとにモデルを保存
                 if args.save_every_n_steps is not None and global_step % args.save_every_n_steps == 0:
@@ -831,9 +839,17 @@ def train(args):
                     accelerator.unwrap_model(flux),
                 )
 
+        if assistant_lora is not None:
+            print("Unloading assistant lora")
+            accelerator.unwrap_model(assistant_lora).set_enabled(False)
+
         flux_train_utils.sample_images(
             accelerator, args, epoch + 1, global_step, flux, ae, [clip_l, t5xxl], sample_prompts_te_outputs
         )
+
+        if assistant_lora is not None:
+            print("Reloading assistant lora")
+            accelerator.unwrap_model(assistant_lora).set_enabled(True)
 
     is_main_process = accelerator.is_main_process
     # if is_main_process:
