@@ -299,7 +299,7 @@ class FluxNetworkTrainer(train_network.NetworkTrainer):
     def sample_images(self, accelerator, args, epoch, global_step, device, ae, tokenizer, text_encoder, flux):
         if self.assistant_lora is not None:
             logger.info("Unloading assistant lora")
-            self.assistant_lora.set_enabled(False)
+            accelerator.unwrap_model(self.assistant_lora).set_enabled(False)
         
         text_encoders = text_encoder  # for compatibility
         text_encoders = self.get_models_for_text_encoding(args, accelerator, text_encoders)
@@ -335,7 +335,7 @@ class FluxNetworkTrainer(train_network.NetworkTrainer):
 
         if self.assistant_lora is not None:
             logger.info("Reloading assistant lora")
-            self.assistant_lora.set_enabled(True)
+            accelerator.unwrap_model(self.assistant_lora).set_enabled(True)
 
     def get_noise_scheduler(self, args: argparse.Namespace, device: torch.device) -> Any:
         noise_scheduler = sd3_train_utils.FlowMatchEulerDiscreteScheduler(num_train_timesteps=1000, shift=args.discrete_flow_shift)
