@@ -405,7 +405,9 @@ def train(args):
         flux.to(weight_dtype)
         if clip_l is not None:
             clip_l.to(weight_dtype)
-            t5xxl.to(weight_dtype)  # TODO check works with fp16 or not
+            t5xxl.to(weight_dtype) # TODO check works with fp16 or not
+        if assistant_lora is not None:
+            assistant_lora.to(weight_dtype) 
     elif args.full_bf16:
         assert (
             args.mixed_precision == "bf16"
@@ -415,6 +417,8 @@ def train(args):
         if clip_l is not None:
             clip_l.to(weight_dtype)
             t5xxl.to(weight_dtype)
+        if assistant_lora is not None:
+            assistant_lora.to(weight_dtype) 
 
     # if we don't cache text encoder outputs, move them to device
     if not args.cache_text_encoder_outputs:
@@ -806,23 +810,23 @@ def train(args):
                         )
 
             current_loss = loss.detach().item()  # 平均なのでbatch sizeは関係ないはず
-            if len(accelerator.trackers) > 0:
-                logs = {"loss": current_loss}
-                train_util.append_lr_to_logs(logs, lr_scheduler, args.optimizer_type, including_unet=True)
-
-                accelerator.log(logs, step=global_step)
 
             loss_recorder.add(epoch=epoch, step=step, loss=current_loss)
             avr_loss: float = loss_recorder.moving_average
             logs = {"avr_loss": avr_loss}  # , "lr": lr_scheduler.get_last_lr()[0]}
             progress_bar.set_postfix(**logs)
 
+            if len(accelerator.trackers) > 0:
+                logs = {
+                    "loss": current_loss,
+                    "loss/epoch": loss_recorder.moving_average
+                }
+                train_util.append_lr_to_logs(logs, lr_scheduler, args.optimizer_type, including_unet=True)
+
+                accelerator.log(logs, step=global_step)
+            
             if global_step >= args.max_train_steps:
                 break
-
-        if len(accelerator.trackers) > 0:
-            logs = {"loss/epoch": loss_recorder.moving_average}
-            accelerator.log(logs, step=epoch + 1)
 
         accelerator.wait_for_everyone()
 
