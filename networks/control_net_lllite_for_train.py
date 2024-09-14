@@ -184,7 +184,7 @@ class SdxlUNet2DConditionModelControlNetLLLite(sdxl_original_unet.SdxlUNet2DCond
         cond_emb_dim: int = 16,
         mlp_dim: int = 16,
         dropout: Optional[float] = None,
-        varbose: Optional[bool] = False,
+        verbose: Optional[bool] = False,
         multiplier: Optional[float] = 1.0,
     ) -> None:
         def apply_to_modules(

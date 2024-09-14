@@ -212,7 +212,7 @@ def create_network(
         alpha=network_alpha,
         apply_to_conv=conv_dim is not None,
         unit=unit,
-        varbose=True,
+        verbose=True,
     )
 
     loraplus_lr_ratio = kwargs.get("loraplus_lr_ratio", None)
@@ -284,7 +284,7 @@ class DyLoRANetwork(torch.nn.Module):
         modules_alpha=None,
         unit=1,
         module_class=DyLoRAModule,
-        varbose=False,
+        verbose=False,
     ) -> None:
         super().__init__()
         self.multiplier = multiplier

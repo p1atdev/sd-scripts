@@ -193,7 +193,7 @@ class ControlNetLLLite(torch.nn.Module):
         cond_emb_dim: int = 16,
         mlp_dim: int = 16,
         dropout: Optional[float] = None,
-        varbose: Optional[bool] = False,
+        verbose: Optional[bool] = False,
         multiplier: Optional[float] = 1.0,
     ) -> None:
         super().__init__()

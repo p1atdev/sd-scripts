@@ -190,7 +190,7 @@ def create_network(
         alpha=network_alpha,
         enable_all_linear=enable_all_linear,
         enable_conv=enable_conv,
-        varbose=True,
+        verbose=True,
     )
     return network
 
@@ -258,7 +258,7 @@ class OFTNetwork(torch.nn.Module):
         enable_all_linear: Optional[bool] = False,
         enable_conv: Optional[bool] = False,
         module_class: Type[object] = OFTModule,
-        varbose: Optional[bool] = False,
+        verbose: Optional[bool] = False,
     ) -> None:
         super().__init__()
         self.multiplier = multiplier

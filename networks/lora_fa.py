@@ -498,7 +498,7 @@ def create_network(
         block_alphas=block_alphas,
         conv_block_dims=conv_block_dims,
         conv_block_alphas=conv_block_alphas,
-        varbose=True,
+        verbose=True,
     )
 
     if up_lr_weight is not None or mid_lr_weight is not None or down_lr_weight is not None:
@@ -782,7 +782,7 @@ class LoRANetwork(torch.nn.Module):
         modules_dim: Optional[Dict[str, int]] = None,
         modules_alpha: Optional[Dict[str, int]] = None,
         module_class: Type[object] = LoRAModule,
-        varbose: Optional[bool] = False,
+        verbose: Optional[bool] = False,
     ) -> None:
         """
         LoRA network: すごく引数が多いが、パターンは以下の通り
@@ -921,7 +921,7 @@ class LoRANetwork(torch.nn.Module):
         logger.info(f"create LoRA for U-Net: {len(self.unet_loras)} modules.")
 
         skipped = skipped_te + skipped_un
-        if varbose and len(skipped) > 0:
+        if verbose and len(skipped) > 0:
             logger.warning(
                 f"because block_lr_weight is 0 or dim (rank) is 0, {len(skipped)} LoRA modules are skipped / block_lr_weightまたはdim (rank)が0の為、次の{len(skipped)}個のLoRAモジュールはスキップされます:"
             )

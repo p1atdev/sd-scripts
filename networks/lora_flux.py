@@ -1112,7 +1112,7 @@ def load_assistant_lora(model_local_path: str, transformer, text_encoders = [], 
         weights_sd=lora_state_dict, 
         for_inference=True, 
         split_qkv=False,
-        varbose=False,
+        verbose=False,
     )
     assert isinstance(lora_model, LoRANetwork), "Assistant LoRA must be an instance of LoRANetwork"
     lora_model.apply_to(text_encoders, transformer)

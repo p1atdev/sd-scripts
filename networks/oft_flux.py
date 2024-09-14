@@ -221,7 +221,7 @@ def create_network(
         dim=network_dim,
         alpha=network_alpha,
         enable_all_linear=enable_all_linear,
-        varbose=True,
+        verbose=True,
     )
     return network
 
@@ -283,7 +283,7 @@ class OFTNetwork(torch.nn.Module):
         alpha: float = 1,
         enable_all_linear: Optional[bool] = False,
         module_class: Union[Type[OFTModule], Type[OFTInfModule]] = OFTModule,
-        varbose: Optional[bool] = False,
+        verbose: Optional[bool] = False,
     ) -> None:
         super().__init__()
         self.train_t5xxl = False  # make compatible with LoRA

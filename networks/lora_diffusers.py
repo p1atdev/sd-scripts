@@ -293,7 +293,7 @@ class LoRANetwork(torch.nn.Module):
         multiplier: float = 1.0,
         modules_dim: Optional[Dict[str, int]] = None,
         modules_alpha: Optional[Dict[str, int]] = None,
-        varbose: Optional[bool] = False,
+        verbose: Optional[bool] = False,
     ) -> None:
         super().__init__()
         self.multiplier = multiplier
