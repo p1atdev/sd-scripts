@@ -48,6 +48,29 @@ from library.config_util import (
 from library.custom_train_functions import apply_masked_loss, add_custom_train_arguments
 
 
+def should_sample(
+    sample_at_first: bool, 
+    epoch: int, 
+    steps: int, 
+    sample_every_n_steps: int | None, 
+    sample_every_n_epochs: int | None
+):
+    if steps == 0:
+        if not sample_at_first:
+            return False
+    else:
+        if sample_every_n_steps is None and sample_every_n_epochs is None:
+            return False
+        if sample_every_n_epochs is not None:
+            # sample_every_n_steps は無視する
+            if epoch is None or epoch % sample_every_n_epochs != 0:
+                return False
+        elif sample_every_n_steps is not None:
+            if steps % sample_every_n_steps != 0 or epoch is not None:  # steps is not divisible or end of epoch
+                return False
+    
+    return True
+
 def train(args):
     train_util.verify_training_args(args)
     train_util.prepare_dataset_args(args, True)
@@ -784,9 +807,13 @@ def train(args):
                 progress_bar.update(1)
                 global_step += 1
 
-                if ((global_step == 0 and args.sample_at_first) 
-                or (args.sample_every_n_epochs is not None and epoch % args.sample_every_n_epochs == 0)
-                or (args.sample_every_n_steps is not None and global_step % args.sample_every_n_steps == 0)):
+                if should_sample(
+                    args.sample_at_first,
+                    epoch,
+                    global_step,
+                    args.sample_every_n_steps,
+                    args.sample_every_n_epochs
+                ):
                     if assistant_lora is not None:
                         print("Unloading assistant lora")
                         accelerator.unwrap_model(assistant_lora).set_enabled(False)
@@ -821,7 +848,7 @@ def train(args):
 
             if len(accelerator.trackers) > 0:
                 logs = {
-                    "loss": current_loss,
+                    "loss/current": current_loss,
                     "loss/epoch": loss_recorder.moving_average
                 }
                 train_util.append_lr_to_logs(logs, lr_scheduler, args.optimizer_type, including_unet=True)
@@ -846,17 +873,22 @@ def train(args):
                     accelerator.unwrap_model(flux),
                 )
 
-        if assistant_lora is not None:
-            print("Unloading assistant lora")
-            accelerator.unwrap_model(assistant_lora).set_enabled(False)
-
-        flux_train_utils.sample_images(
-            accelerator, args, epoch + 1, global_step, flux, ae, [clip_l, t5xxl], sample_prompts_te_outputs
-        )
-
-        if assistant_lora is not None:
-            print("Reloading assistant lora")
-            accelerator.unwrap_model(assistant_lora).set_enabled(True)
+        if should_sample(
+            args.sample_at_first,
+            epoch,
+            global_step,
+            args.sample_every_n_steps,
+            args.sample_every_n_epochs
+        ):
+            if assistant_lora is not None:
+                print("Unloading assistant lora")
+                accelerator.unwrap_model(assistant_lora).set_enabled(False)
+            flux_train_utils.sample_images(
+                accelerator, args, epoch + 1, global_step, flux, ae, [clip_l, t5xxl], sample_prompts_te_outputs
+            )
+            if assistant_lora is not None:
+                print("Reloading assistant lora")
+                accelerator.unwrap_model(assistant_lora).set_enabled(True)
 
     is_main_process = accelerator.is_main_process
     # if is_main_process:
