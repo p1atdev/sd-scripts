@@ -68,6 +68,8 @@ def should_sample(
         elif sample_every_n_steps is not None:
             if steps % sample_every_n_steps != 0 or epoch is not None:  # steps is not divisible or end of epoch
                 return False
+        else:
+            return False
     
     return True
 
