@@ -784,15 +784,18 @@ def train(args):
                 progress_bar.update(1)
                 global_step += 1
 
-                if assistant_lora is not None:
-                    print("Unloading assistant lora")
-                    accelerator.unwrap_model(assistant_lora).set_enabled(False)
-                flux_train_utils.sample_images(
-                    accelerator, args, None, global_step, flux, ae, [clip_l, t5xxl], sample_prompts_te_outputs
-                )
-                if assistant_lora is not None:
-                    print("Reloading assistant lora")
-                    accelerator.unwrap_model(assistant_lora).set_enabled(True)
+                if ((global_step == 0 and args.sample_at_first) 
+                or (args.sample_every_n_epochs is not None and epoch % args.sample_every_n_epochs == 0)
+                or (args.sample_every_n_steps is not None and global_step % args.sample_every_n_steps == 0)):
+                    if assistant_lora is not None:
+                        print("Unloading assistant lora")
+                        accelerator.unwrap_model(assistant_lora).set_enabled(False)
+                    flux_train_utils.sample_images(
+                        accelerator, args, None, global_step, flux, ae, [clip_l, t5xxl], sample_prompts_te_outputs
+                    )
+                    if assistant_lora is not None:
+                        print("Reloading assistant lora")
+                        accelerator.unwrap_model(assistant_lora).set_enabled(True)
 
                 # 指定ステップごとにモデルを保存
                 if args.save_every_n_steps is not None and global_step % args.save_every_n_steps == 0:
