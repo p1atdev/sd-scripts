@@ -17,6 +17,7 @@ from library.device_utils import init_ipex, clean_memory_on_device
 
 init_ipex()
 
+import accelerate
 from accelerate.utils import set_seed
 from diffusers import DDPMScheduler
 from library import deepspeed_utils, model_util, strategy_base, strategy_sd
@@ -152,6 +153,22 @@ class NetworkTrainer:
             if param.grad is not None:
                 param.grad = accelerator.reduce(param.grad, reduction="mean")
 
+    def should_sample_images(self, args, steps, epoch) -> bool:
+        if steps == 0:
+            if not args.sample_at_first:
+                return False
+        else:
+            if args.sample_every_n_steps is None and args.sample_every_n_epochs is None:
+                return False
+            if args.sample_every_n_epochs is not None:
+                # sample_every_n_steps は無視する
+                if epoch is None or epoch % args.sample_every_n_epochs != 0:
+                    return False
+            else:
+                if steps % args.sample_every_n_steps != 0 or epoch is not None:  # steps is not divisible or end of epoch
+                    return False
+        return True
+
     def sample_images(self, accelerator, args, epoch, global_step, device, vae, tokenizers, text_encoder, unet):
         train_util.sample_images(accelerator, args, epoch, global_step, device, vae, tokenizers[0], text_encoder, unet)
 
@@ -273,51 +290,61 @@ class NetworkTrainer:
         latents_caching_strategy = self.get_latents_caching_strategy(args)
         strategy_base.LatentsCachingStrategy.set_strategy(latents_caching_strategy)
 
-        # データセットを準備する
-        if args.dataset_class is None:
-            blueprint_generator = BlueprintGenerator(ConfigSanitizer(True, True, args.masked_loss, True))
-            if use_user_config:
-                logger.info(f"Loading dataset config from {args.dataset_config}")
-                user_config = config_util.load_user_config(args.dataset_config)
-                ignored = ["train_data_dir", "reg_data_dir", "in_json"]
-                if any(getattr(args, attr) is not None for attr in ignored):
-                    logger.warning(
-                        "ignoring the following options because config file is found: {0} / 設定ファイルが利用されるため以下のオプションは無視されます: {0}".format(
-                            ", ".join(ignored)
-                        )
-                    )
-            else:
-                if use_dreambooth_method:
-                    logger.info("Using DreamBooth method.")
-                    user_config = {
-                        "datasets": [
-                            {
-                                "subsets": config_util.generate_dreambooth_subsets_config_by_subdirs(
-                                    args.train_data_dir, args.reg_data_dir
-                                )
-                            }
-                        ]
-                    }
-                else:
-                    logger.info("Training with captions.")
-                    user_config = {
-                        "datasets": [
-                            {
-                                "subsets": [
-                                    {
-                                        "image_dir": args.train_data_dir,
-                                        "metadata_file": args.in_json,
-                                    }
-                                ]
-                            }
-                        ]
-                    }
+        # acceleratorを準備する
+        logger.info("preparing accelerator")
+        accelerator = train_util.prepare_accelerator(args)
+        is_main_process = accelerator.is_main_process
 
-            blueprint = blueprint_generator.generate(user_config, args)
-            train_dataset_group = config_util.generate_dataset_group_by_blueprint(blueprint.dataset_group)
+        # データセットを準備する
+        if is_main_process:
+            # only do on main process
+            if args.dataset_class is None:
+                blueprint_generator = BlueprintGenerator(ConfigSanitizer(True, True, args.masked_loss, True))
+                if use_user_config:
+                    logger.info(f"Loading dataset config from {args.dataset_config}")
+                    user_config = config_util.load_user_config(args.dataset_config)
+                    ignored = ["train_data_dir", "reg_data_dir", "in_json"]
+                    if any(getattr(args, attr) is not None for attr in ignored):
+                        logger.warning(
+                            "ignoring the following options because config file is found: {0} / 設定ファイルが利用されるため以下のオプションは無視されます: {0}".format(
+                                ", ".join(ignored)
+                            )
+                        )
+                else:
+                    if use_dreambooth_method:
+                        logger.info("Using DreamBooth method.")
+                        user_config = {
+                            "datasets": [
+                                {
+                                    "subsets": config_util.generate_dreambooth_subsets_config_by_subdirs(
+                                        args.train_data_dir, args.reg_data_dir
+                                    )
+                                }
+                            ]
+                        }
+                    else:
+                        logger.info("Training with captions.")
+                        user_config = {
+                            "datasets": [
+                                {
+                                    "subsets": [
+                                        {
+                                            "image_dir": args.train_data_dir,
+                                            "metadata_file": args.in_json,
+                                        }
+                                    ]
+                                }
+                            ]
+                        }
+
+                blueprint = blueprint_generator.generate(user_config, args)
+                train_dataset_group = config_util.generate_dataset_group_by_blueprint(blueprint.dataset_group)
+            else:
+                # use arbitrary dataset class
+                train_dataset_group = train_util.load_arbitrary_dataset(args)
         else:
-            # use arbitrary dataset class
-            train_dataset_group = train_util.load_arbitrary_dataset(args)
+            train_dataset_group = None
+        [train_dataset_group] = accelerate.utils.broadcast_object_list([train_dataset_group])
 
         current_epoch = Value("i", 0)
         current_step = Value("i", 0)
@@ -340,11 +367,6 @@ class NetworkTrainer:
             ), "when caching latents, either color_aug or random_crop cannot be used / latentをキャッシュするときはcolor_augとrandom_cropは使えません"
 
         self.assert_extra_args(args, train_dataset_group)  # may change some args
-
-        # acceleratorを準備する
-        logger.info("preparing accelerator")
-        accelerator = train_util.prepare_accelerator(args)
-        is_main_process = accelerator.is_main_process
 
         # mixed precisionに対応した型を用意しておき適宜castする
         weight_dtype, save_dtype = train_util.prepare_dtype(args)
@@ -497,7 +519,8 @@ class NetworkTrainer:
         #             v = len(v)
         #         accelerator.print(f"trainable_params: {k} = {v}")
 
-        optimizer_name, optimizer_args, optimizer = train_util.get_optimizer(args, trainable_params, network)
+        optimizer_name, optimizer_args, optimizer = train_util.get_optimizer(args, trainable_params)
+        optimizer_train_fn, optimizer_eval_fn = train_util.get_optimizer_train_eval_fn(optimizer, args)
 
         # prepare dataloader
         # strategies are set here because they cannot be referenced in another process. Copy them with the dataset
@@ -586,6 +609,7 @@ class NetworkTrainer:
                 text_encoder1=text_encoders[0] if flags[0] else None,
                 text_encoder2=(text_encoders[1] if flags[1] else None) if len(text_encoders) > 1 else None,
                 network=network,
+                assistant_lora=self.assistant_lora if hasattr(self, "assistant_lora") else None
             )
             ds_model, optimizer, train_dataloader, lr_scheduler = accelerator.prepare(
                 ds_model, optimizer, train_dataloader, lr_scheduler
@@ -1203,9 +1227,11 @@ class NetworkTrainer:
                     progress_bar.update(1)
                     global_step += 1
 
-                    self.sample_images(
-                        accelerator, args, None, global_step, accelerator.device, vae, tokenizers, text_encoder, unet
-                    )
+                    optimizer_eval_fn()
+                    if self.should_sample_images(args, global_step, None):
+                        self.sample_images(
+                            accelerator, args, None, global_step, accelerator.device, vae, tokenizers, text_encoder, unet
+                        )
 
                     # 指定ステップごとにモデルを保存
                     if args.save_every_n_steps is not None and global_step % args.save_every_n_steps == 0:
@@ -1221,6 +1247,7 @@ class NetworkTrainer:
                             if remove_step_no is not None:
                                 remove_ckpt_name = train_util.get_step_ckpt_name(args, "." + args.save_model_as, remove_step_no)
                                 remove_model(remove_ckpt_name)
+                    optimizer_train_fn()
 
                 current_loss = loss.detach().item()
                 loss_recorder.add(epoch=epoch, step=step, loss=current_loss)
@@ -1247,6 +1274,7 @@ class NetworkTrainer:
             accelerator.wait_for_everyone()
 
             # 指定エポックごとにモデルを保存
+            optimizer_eval_fn()
             if args.save_every_n_epochs is not None:
                 saving = (epoch + 1) % args.save_every_n_epochs == 0 and (epoch + 1) < num_train_epochs
                 if is_main_process and saving:
@@ -1261,7 +1289,9 @@ class NetworkTrainer:
                     if args.save_state:
                         train_util.save_and_remove_state_on_epoch_end(args, accelerator, epoch + 1)
 
-            self.sample_images(accelerator, args, epoch + 1, global_step, accelerator.device, vae, tokenizers, text_encoder, unet)
+            if self.should_sample_images(args, global_step, epoch + 1):
+                self.sample_images(accelerator, args, epoch + 1, global_step, accelerator.device, vae, tokenizers, text_encoder, unet)
+            optimizer_train_fn()
 
             # end of epoch
 
@@ -1272,6 +1302,7 @@ class NetworkTrainer:
             network = accelerator.unwrap_model(network)
 
         accelerator.end_training()
+        optimizer_eval_fn()
 
         if is_main_process and (args.save_state or args.save_state_on_train_end):
             train_util.save_state_on_train_end(args, accelerator)
