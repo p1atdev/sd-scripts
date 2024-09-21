@@ -344,6 +344,7 @@ class NetworkTrainer:
                 train_dataset_group = train_util.load_arbitrary_dataset(args)
         else:
             train_dataset_group = None
+        accelerator.wait_for_everyone()
         [train_dataset_group] = accelerate.utils.broadcast_object_list([train_dataset_group])
 
         current_epoch = Value("i", 0)
