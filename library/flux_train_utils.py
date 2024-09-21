@@ -42,19 +42,6 @@ def sample_images(
     sample_prompts_te_outputs,
     prompt_replacement=None,
 ):
-    if steps == 0:
-        if not args.sample_at_first:
-            return
-    else:
-        if args.sample_every_n_steps is None and args.sample_every_n_epochs is None:
-            return
-        if args.sample_every_n_epochs is not None:
-            # sample_every_n_steps は無視する
-            if epoch is None or epoch % args.sample_every_n_epochs != 0:
-                return
-        else:
-            if steps % args.sample_every_n_steps != 0 or epoch is not None:  # steps is not divisible or end of epoch
-                return
 
     logger.info("")
     logger.info(f"generating sample images at step / サンプル画像生成 ステップ: {steps}")
@@ -228,7 +215,7 @@ def sample_image_inference(
     with accelerator.autocast(), torch.no_grad():
         x = denoise(flux, noise, img_ids, t5_out, txt_ids, l_pooled, timesteps=timesteps, guidance=scale, t5_attn_mask=t5_attn_mask)
 
-    x = x.float()
+    # x = x.float()
     x = flux_utils.unpack_latents(x, packed_latent_height, packed_latent_width)
 
     # latent to image
@@ -436,7 +423,6 @@ def get_noisy_model_input_and_timesteps(
         # Add noise according to flow matching.
         sigmas = get_sigmas(noise_scheduler, timesteps, device, n_dim=latents.ndim, dtype=dtype)
         noisy_model_input = sigmas * noise + (1.0 - sigmas) * latents
-
     return noisy_model_input, timesteps, sigmas
 
 
